@@ -7,7 +7,7 @@
 # ]
 # ///
 """
-Sound-effects generator for the `remotion-idea-to-video` workflow.
+Sound-effects generator for RemotionForge (workflow: `remotion-idea-to-video`).
 
 Generates a small, fixed set of editorial SFX via ElevenLabs Sound Generation:
   - intro_whoosh    (fires at composition start, scene1)

@@ -1,4 +1,4 @@
-# Optional brand customization for the `remotion-idea-to-video` workflow.
+# Optional brand customization for RemotionForge (workflow: `remotion-idea-to-video`).
 #
 # To activate: copy this file to `.archon/brand.yaml` and edit. Missing keys
 # fall back to the neutral defaults documented below. Delete or omit the file

@@ -6,7 +6,7 @@
 # ]
 # ///
 """
-TTS voiceover generator for the `remotion-idea-to-video` workflow.
+TTS voiceover generator for RemotionForge (workflow: `remotion-idea-to-video`).
 
 Invoked by the `generate-audio` node. Reads narration JSON produced by
 `plan-video`, calls the configured TTS provider (Cartesia or ElevenLabs),

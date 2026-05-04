@@ -8,7 +8,7 @@
 
 ## What we built
 
-A single Archon workflow, `remotion-idea-to-video`, that takes a URL and produces a polished ~40-second Remotion video from it — voiced, with sound effects, optionally with music, rendered to mp4, and archived in-repo alongside every past run.
+A single Archon workflow, `remotion-idea-to-video`, that powers RemotionForge and takes a URL and produces a polished ~40-second Remotion video from it — voiced, with sound effects, optionally with music, rendered to mp4, and archived in-repo alongside every past run.
 
 Three live examples now live in the repo under `./videos/`:
 

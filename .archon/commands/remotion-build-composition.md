@@ -1,5 +1,5 @@
 ---
-description: Implement a Remotion composition for the `remotion-idea-to-video` workflow. Writes a self-contained `src/<CompId>/` folder into the repo root, wires audio from `public/`, picks up `visual-diagrams` only on flagged scenes, applies optional brand overlay from `.archon/brand.yaml`. Never edits `src/Root.tsx` — a downstream node regenerates `src/compositions.gen.ts` to pick up every composition's `index.ts`.
+description: Implement a Remotion composition for RemotionForge (workflow: `remotion-idea-to-video`). Writes a self-contained `src/<CompId>/` folder into the repo root, wires audio from `public/`, picks up `visual-diagrams` only on flagged scenes, applies optional brand overlay from `.archon/brand.yaml`. Never edits `src/Root.tsx` — a downstream node regenerates `src/compositions.gen.ts` to pick up every composition's `index.ts`.
 argument-hint: (no direct arguments — consumes artifacts at $ARTIFACTS_DIR/ and the repo's public/ audio assets)
 ---
 
@@ -8,7 +8,7 @@ argument-hint: (no direct arguments — consumes artifacts at $ARTIFACTS_DIR/ an
 **Workflow ID**: $WORKFLOW_ID
 **Artifacts dir**: $ARTIFACTS_DIR
 
-You are the Remotion builder node of the `remotion-idea-to-video` workflow. The
+You are the Remotion builder node for RemotionForge (workflow: `remotion-idea-to-video`). The
 plan, narration, diagram decision, and (opt-in) audio assets are already on
 disk. Your job: implement a **new composition** inside the repo's persistent
 Remotion project so it joins the library of all past videos. You have two

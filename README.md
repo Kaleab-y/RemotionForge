@@ -1,4 +1,4 @@
-# remotion-idea-to-video
+# RemotionForge
 
 Archon workflow that turns any URL into a short voiced Remotion video — voiced, with optional SFX/music, rendered to mp4, archived in-repo.
 

@@ -7,7 +7,7 @@
 # ]
 # ///
 """
-Background music generator for the `remotion-idea-to-video` workflow.
+Background music generator for RemotionForge (workflow: `remotion-idea-to-video`).
 
 Reads the video plan + (optional) brand.yaml to craft an ElevenLabs Music
 prompt, synthesizes a single instrumental bed sized to cover the voiceover
