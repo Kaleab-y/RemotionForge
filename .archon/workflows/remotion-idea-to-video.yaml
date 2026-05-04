@@ -578,11 +578,53 @@ nodes:
     depends_on: [plan-video]
     timeout: 600000
 
+  - id: validate-artifacts
+    bash: |
+      set -euo pipefail
+      echo "Validating workflow artifacts..."
+
+      # Required artifact files
+      [ -f "$ARTIFACTS_DIR/article.json" ] || { echo "MISSING: $ARTIFACTS_DIR/article.json" >&2; exit 1; }
+      [ -f "$ARTIFACTS_DIR/slug.json" ] || { echo "MISSING: $ARTIFACTS_DIR/slug.json" >&2; exit 1; }
+      [ -f "$ARTIFACTS_DIR/video-plan.md" ] || { echo "MISSING: $ARTIFACTS_DIR/video-plan.md" >&2; exit 1; }
+
+      # Basic JSON shape checks using jq (title, mode, url, source_type)
+      jq -e '.title and .mode and (.url != null) and .source_type' "$ARTIFACTS_DIR/article.json" >/dev/null || { echo "INVALID: article.json missing required fields" >&2; jq '.' "$ARTIFACTS_DIR/article.json" >&2 || true; exit 2; }
+
+      # If audio manifests exist, ensure the referenced files exist and have non-zero duration
+      for m in voice music sfx; do
+        MANIF="$ARTIFACTS_DIR/audio/${m}-manifest.json"
+        if [ -f "$MANIF" ]; then
+          PATHVAL=$(jq -r '.path // empty' "$MANIF")
+          if [ -z "$PATHVAL" ]; then
+            echo "INVALID: $MANIF missing 'path' field" >&2
+            exit 3
+          fi
+          if [ ! -f "$PATHVAL" ]; then
+            echo "MISSING: referenced audio file $PATHVAL from $MANIF" >&2
+            exit 4
+          fi
+          if command -v ffprobe >/dev/null 2>&1; then
+            DUR=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$PATHVAL" 2>/dev/null || echo 0)
+            case "$DUR" in
+              ""|0|0.0)
+                echo "INVALID: audio $PATHVAL has zero duration" >&2
+                exit 5
+                ;;
+            esac
+          fi
+        fi
+      done
+
+      echo "Artifact validation: OK"
+    depends_on: [generate-audio, generate-music, generate-sfx]
+    timeout: 300000
+
   # ── Layer 4: Build composition ─────────────────────────────────────
 
   - id: build-composition
     command: remotion-build-composition
-    depends_on: [generate-audio, generate-music, generate-sfx]
+    depends_on: [validate-artifacts]
     trigger_rule: all_success
     context: fresh
     skills:

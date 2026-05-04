@@ -51,7 +51,7 @@ for _stream in (sys.stdout, sys.stderr):
         _stream.reconfigure(encoding="utf-8")
 
 sys.path.insert(0, str(Path(__file__).parent))
-from _audio_common import load_project_env  # noqa: E402
+from _audio_common import load_project_env, retry_call  # noqa: E402
 
 
 # Defaults — override via env vars documented in the module docstring.
@@ -113,9 +113,8 @@ def synthesize_cartesia(text: str, out_path: Path) -> None:
             json=body,
         )
     if resp.status_code != 200:
-        sys.exit(
-            f"FATAL: Cartesia TTS returned {resp.status_code}: "
-            f"{resp.text[:500]}"
+        raise RuntimeError(
+            f"Cartesia TTS returned {resp.status_code}: {resp.text[:500]}"
         )
     out_path.write_bytes(resp.content)
 
@@ -147,9 +146,8 @@ def synthesize_elevenlabs(text: str, out_path: Path) -> None:
             json=body,
         )
     if resp.status_code != 200:
-        sys.exit(
-            f"FATAL: ElevenLabs TTS returned {resp.status_code}: "
-            f"{resp.text[:500]}"
+        raise RuntimeError(
+            f"ElevenLabs TTS returned {resp.status_code}: {resp.text[:500]}"
         )
     out_path.write_bytes(resp.content)
 
@@ -209,10 +207,14 @@ def main() -> None:
         out_path = out_dir / f"{scene_id}.mp3"
         print(f"  → {scene_id}: synthesizing ({len(text)} chars)")
 
-        if provider == "cartesia":
-            synthesize_cartesia(text, out_path)
-        else:
-            synthesize_elevenlabs(text, out_path)
+        try:
+            # Retry the TTS call with exponential backoff on transient failures.
+            if provider == "cartesia":
+                retry_call(lambda: synthesize_cartesia(text, out_path), attempts=3, base_delay=1.0)
+            else:
+                retry_call(lambda: synthesize_elevenlabs(text, out_path), attempts=3, base_delay=1.0)
+        except Exception as e:
+            sys.exit(f"FATAL: TTS failed after retries: {e}")
 
         duration_s = measure_duration_seconds(out_path)
         duration_frames = round(duration_s * fps)

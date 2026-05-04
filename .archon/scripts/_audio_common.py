@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import time
+from typing import Callable, Any
 
 
 def load_project_env(root: Path) -> None:
@@ -61,3 +63,27 @@ def slug_from_composition_id(composition_id: str) -> str:
     """Defensive — return the composition_id unchanged. We treat the planner's
     chosen composition_id as authoritative; callers pass it through."""
     return composition_id
+
+
+def retry_call(func: Callable[[], Any], attempts: int = 3, base_delay: float = 1.0) -> Any:
+    """Retry a no-arg callable with exponential backoff.
+
+    func: callable that takes no arguments. Raises any exception on failure.
+    attempts: total attempts (default 3).
+    base_delay: initial backoff in seconds; backoff doubles each retry.
+    Returns the callable's result or raises the last exception.
+    """
+    last_exc = None
+    for i in range(attempts):
+        try:
+            return func()
+        except Exception as e:
+            last_exc = e
+            if i + 1 >= attempts:
+                break
+            sleep_for = base_delay * (2 ** i)
+            try:
+                time.sleep(sleep_for)
+            except KeyboardInterrupt:
+                raise
+    raise last_exc

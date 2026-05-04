@@ -54,7 +54,7 @@ for _stream in (sys.stdout, sys.stderr):
         _stream.reconfigure(encoding="utf-8")
 
 sys.path.insert(0, str(Path(__file__).parent))
-from _audio_common import load_project_env, read_brand_yaml  # noqa: E402
+from _audio_common import load_project_env, read_brand_yaml, retry_call  # noqa: E402
 
 
 DEFAULT_MOOD = "understated, upbeat tech-explainer bed, no drums, no vocals, cinematic, subtle"
@@ -153,16 +153,23 @@ def main() -> None:
         "music_length_ms": music_ms,
     }
 
-    with httpx.Client(timeout=300.0) as client:
-        resp = client.post(
-            "https://api.elevenlabs.io/v1/music",
-            headers={
-                "xi-api-key": api_key,
-                "Content-Type": "application/json",
-                "Accept": "audio/mpeg",
-            },
-            json=body,
-        )
+    def do_post():
+        with httpx.Client(timeout=300.0) as client:
+            return client.post(
+                "https://api.elevenlabs.io/v1/music",
+                headers={
+                    "xi-api-key": api_key,
+                    "Content-Type": "application/json",
+                    "Accept": "audio/mpeg",
+                },
+                json=body,
+            )
+
+    try:
+        resp = retry_call(do_post, attempts=3, base_delay=1.0)
+    except Exception as e:
+        sys.exit(f"FATAL: ElevenLabs Music failed after retries: {e}")
+
     if resp.status_code != 200:
         sys.exit(
             f"FATAL: ElevenLabs Music returned {resp.status_code}: "

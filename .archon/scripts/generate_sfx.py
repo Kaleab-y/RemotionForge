@@ -47,7 +47,7 @@ for _stream in (sys.stdout, sys.stderr):
         _stream.reconfigure(encoding="utf-8")
 
 sys.path.insert(0, str(Path(__file__).parent))
-from _audio_common import load_project_env, read_brand_yaml  # noqa: E402
+from _audio_common import load_project_env, read_brand_yaml, retry_call  # noqa: E402
 
 
 INTRO_PROMPT = "Futuristic digital power-up, AI system initializing, rising electronic swoosh, punchy and energetic"
@@ -80,9 +80,8 @@ def synthesize_sfx(
         json=body,
     )
     if resp.status_code != 200:
-        sys.exit(
-            f"FATAL: ElevenLabs SFX returned {resp.status_code} "
-            f"for prompt {text!r}: {resp.text[:300]}"
+        raise RuntimeError(
+            f"ElevenLabs SFX returned {resp.status_code} for prompt {text!r}: {resp.text[:300]}"
         )
     out_path.write_bytes(resp.content)
 
@@ -165,7 +164,10 @@ def main() -> None:
         for cue in anchors:
             out_path = project_root / "public" / cue["path_rel"]
             print(f"  → {cue['id']}: {cue['prompt']}")
-            synthesize_sfx(client, api_key, cue["prompt"], out_path, cue["duration_s"])
+            try:
+                retry_call(lambda: synthesize_sfx(client, api_key, cue["prompt"], out_path, cue["duration_s"]), attempts=3, base_delay=1.0)
+            except Exception as e:
+                sys.exit(f"FATAL: SFX generation failed after retries: {e}")
             actual = float(MP3(out_path).info.length)
             results.append(
                 {
