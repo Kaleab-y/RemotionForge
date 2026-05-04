@@ -208,6 +208,7 @@ First run scaffolds the Remotion project (`package.json`, `src/`, `remotion.conf
 | `ELEVENLABS_SIMILARITY=0.8` | Voice similarity boost (0–1) |
 | `ELEVENLABS_STYLE=0.25` | Voice style strength (0–1) |
 | `ELEVENLABS_SPEED=1.0` | Voice speed multiplier |
+| `FORCE_FRESH_RUN=true\|false` | When `true`, the `validate-artifacts` node will attempt to regenerate missing or zero-length audio artifacts (voice/music/sfx) by re-running the respective generation scripts. Useful when resuming a run but artifacts were deleted; intended for development/debugging. |
 
 ---
 

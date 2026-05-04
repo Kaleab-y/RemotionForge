@@ -54,7 +54,7 @@ for _stream in (sys.stdout, sys.stderr):
         _stream.reconfigure(encoding="utf-8")
 
 sys.path.insert(0, str(Path(__file__).parent))
-from _audio_common import load_project_env, read_brand_yaml, retry_call  # noqa: E402
+from _audio_common import load_project_env, read_brand_yaml, retry_call, make_idempotency_key, probe_audio  # noqa: E402
 
 
 DEFAULT_MOOD = "understated, upbeat tech-explainer bed, no drums, no vocals, cinematic, subtle"
@@ -166,7 +166,23 @@ def main() -> None:
             )
 
     try:
-        resp = retry_call(do_post, attempts=3, base_delay=1.0)
+        # Use an idempotency key computed from composition + prompt so retries
+        # are safe and duplicate charges are minimized when provider supports it.
+        id_key = make_idempotency_key(composition_id, prompt[:400])
+        def do_post_with_header():
+            with httpx.Client(timeout=300.0) as client:
+                return client.post(
+                    "https://api.elevenlabs.io/v1/music",
+                    headers={
+                        "xi-api-key": api_key,
+                        "Content-Type": "application/json",
+                        "Accept": "audio/mpeg",
+                        "Idempotency-Key": id_key,
+                    },
+                    json=body,
+                )
+
+        resp = retry_call(do_post_with_header, attempts=3, base_delay=1.0)
     except Exception as e:
         sys.exit(f"FATAL: ElevenLabs Music failed after retries: {e}")
 
@@ -182,7 +198,8 @@ def main() -> None:
     out_path = out_dir / f"{composition_id}.mp3"
     out_path.write_bytes(resp.content)
 
-    duration_s = float(MP3(out_path).info.length)
+    info = probe_audio(out_path)
+    duration_s = float(info.get("duration") or 0.0)
     fps = int(narration.get("fps", 30))
     duration_frames = round(duration_s * fps)
 
@@ -193,6 +210,8 @@ def main() -> None:
         "path": f"music/{composition_id}.mp3",
         "duration_s": round(duration_s, 4),
         "duration_frames": duration_frames,
+        "sample_rate": info.get("sample_rate"),
+        "channels": info.get("channels"),
         "prompt": prompt,
         "volume": float(os.environ.get("MUSIC_VOLUME", 0.2)),
     }

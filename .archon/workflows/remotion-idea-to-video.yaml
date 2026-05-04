@@ -591,28 +591,69 @@ nodes:
       # Basic JSON shape checks using jq (title, mode, url, source_type)
       jq -e '.title and .mode and (.url != null) and .source_type' "$ARTIFACTS_DIR/article.json" >/dev/null || { echo "INVALID: article.json missing required fields" >&2; jq '.' "$ARTIFACTS_DIR/article.json" >&2 || true; exit 2; }
 
-      # If audio manifests exist, ensure the referenced files exist and have non-zero duration
+      # Optionally force regeneration of audio artifacts when prior-success cache
+      # has caused earlier audio nodes to be skipped. Set FORCE_FRESH_RUN=true
+      # to attempt regeneration here.
+      FORCE_FRESH_RUN=${FORCE_FRESH_RUN:-}
+
       for m in voice music sfx; do
         MANIF="$ARTIFACTS_DIR/audio/${m}-manifest.json"
-        if [ -f "$MANIF" ]; then
-          PATHVAL=$(jq -r '.path // empty' "$MANIF")
-          if [ -z "$PATHVAL" ]; then
-            echo "INVALID: $MANIF missing 'path' field" >&2
-            exit 3
+        case "$m" in
+          voice) SCRIPT=".archon/scripts/generate_voiceover.py" ;;
+          music) SCRIPT=".archon/scripts/generate_music.py" ;;
+          sfx)   SCRIPT=".archon/scripts/generate_sfx.py" ;;
+        esac
+
+        if [ ! -f "$MANIF" ]; then
+          if [ "$FORCE_FRESH_RUN" = "true" ] || [ "$FORCE_FRESH_RUN" = "1" ]; then
+            echo "Manifest $MANIF missing — attempting regeneration with $SCRIPT"
+            uv run "$SCRIPT" "$ARTIFACTS_DIR" || { echo "FAILED: $SCRIPT failed to generate $MANIF" >&2; exit 6; }
+          else
+            echo "Manifest $MANIF not present — continuing (optional layer)"
+            continue
           fi
-          if [ ! -f "$PATHVAL" ]; then
+        fi
+
+        PATHVAL=$(jq -r '.path // empty' "$MANIF")
+        if [ -z "$PATHVAL" ]; then
+          echo "INVALID: $MANIF missing 'path' field" >&2
+          exit 3
+        fi
+
+        if [ ! -f "$PATHVAL" ]; then
+          if [ "$FORCE_FRESH_RUN" = "true" ] || [ "$FORCE_FRESH_RUN" = "1" ]; then
+            echo "Referenced audio file $PATHVAL from $MANIF missing — attempting regeneration via $SCRIPT"
+            uv run "$SCRIPT" "$ARTIFACTS_DIR" || { echo "FAILED: $SCRIPT failed" >&2; exit 7; }
+            if [ ! -f "$PATHVAL" ]; then
+              echo "FAILED: could not regenerate $PATHVAL" >&2
+              exit 8
+            fi
+          else
             echo "MISSING: referenced audio file $PATHVAL from $MANIF" >&2
             exit 4
           fi
-          if command -v ffprobe >/dev/null 2>&1; then
-            DUR=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$PATHVAL" 2>/dev/null || echo 0)
-            case "$DUR" in
-              ""|0|0.0)
+        fi
+
+        if command -v ffprobe >/dev/null 2>&1; then
+          DUR=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$PATHVAL" 2>/dev/null || echo 0)
+          case "$DUR" in
+            ""|0|0.0)
+              if [ "$FORCE_FRESH_RUN" = "true" ] || [ "$FORCE_FRESH_RUN" = "1" ]; then
+                echo "Zero-duration audio $PATHVAL detected — attempting regeneration via $SCRIPT"
+                uv run "$SCRIPT" "$ARTIFACTS_DIR" || { echo "FAILED: $SCRIPT failed" >&2; exit 9; }
+                DUR=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$PATHVAL" 2>/dev/null || echo 0)
+                case "$DUR" in
+                  ""|0|0.0)
+                    echo "INVALID: audio $PATHVAL has zero duration after regen" >&2
+                    exit 5
+                    ;;
+                esac
+              else
                 echo "INVALID: audio $PATHVAL has zero duration" >&2
                 exit 5
-                ;;
-            esac
-          fi
+              fi
+              ;;
+          esac
         fi
       done
 

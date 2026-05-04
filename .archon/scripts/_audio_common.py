@@ -14,6 +14,10 @@ import os
 from pathlib import Path
 import time
 from typing import Callable, Any
+import subprocess
+import json
+import shutil
+import hashlib
 
 
 def load_project_env(root: Path) -> None:
@@ -87,3 +91,74 @@ def retry_call(func: Callable[[], Any], attempts: int = 3, base_delay: float = 1
             except KeyboardInterrupt:
                 raise
     raise last_exc
+
+
+def make_idempotency_key(*parts: object) -> str:
+    """Create a stable idempotency key from the given parts.
+
+    The key is a deterministic SHA256 hex digest of the joined parts.
+    """
+    key = "|".join(str(p) for p in parts)
+    h = hashlib.sha256(key.encode("utf-8")).hexdigest()
+    # Truncate to 48 chars to be conservative for header length limits.
+    return h[:48]
+
+
+def probe_audio(path: Path) -> dict:
+    """Return audio metadata for `path`.
+
+    Attempts to use `ffprobe` for robust metadata. Falls back to mutagen
+    if ffprobe is unavailable or fails. Returns dict with keys:
+      - duration: float seconds (0.0 if unknown)
+      - sample_rate: int or None
+      - channels: int or None
+    """
+    if not path.exists():
+        return {"duration": 0.0, "sample_rate": None, "channels": None}
+
+    # Prefer ffprobe when available
+    if shutil.which("ffprobe"):
+        try:
+            cmd = [
+                "ffprobe",
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration:stream=sample_rate,channels",
+                "-of",
+                "json",
+                str(path),
+            ]
+            proc = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            data = json.loads(proc.stdout or "{}")
+            duration = float(data.get("format", {}).get("duration", 0.0) or 0.0)
+            streams = data.get("streams", []) or []
+            sample_rate = None
+            channels = None
+            if streams:
+                sr = streams[0].get("sample_rate")
+                ch = streams[0].get("channels")
+                try:
+                    sample_rate = int(sr) if sr is not None else None
+                except Exception:
+                    sample_rate = None
+                try:
+                    channels = int(ch) if ch is not None else None
+                except Exception:
+                    channels = None
+            return {"duration": duration, "sample_rate": sample_rate, "channels": channels}
+        except Exception:
+            # Fall through to mutagen fallback
+            pass
+
+    # Fallback: try mutagen (MP3 info)
+    try:
+        from mutagen.mp3 import MP3  # type: ignore
+
+        audio = MP3(str(path))
+        duration = float(getattr(audio.info, "length", 0.0) or 0.0)
+        sample_rate = getattr(audio.info, "sample_rate", None)
+        channels = getattr(audio.info, "channels", None)
+        return {"duration": duration, "sample_rate": sample_rate, "channels": channels}
+    except Exception:
+        return {"duration": 0.0, "sample_rate": None, "channels": None}

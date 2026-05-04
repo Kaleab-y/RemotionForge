@@ -47,7 +47,7 @@ for _stream in (sys.stdout, sys.stderr):
         _stream.reconfigure(encoding="utf-8")
 
 sys.path.insert(0, str(Path(__file__).parent))
-from _audio_common import load_project_env, read_brand_yaml, retry_call  # noqa: E402
+from _audio_common import load_project_env, read_brand_yaml, retry_call, make_idempotency_key, probe_audio  # noqa: E402
 
 
 INTRO_PROMPT = "Futuristic digital power-up, AI system initializing, rising electronic swoosh, punchy and energetic"
@@ -67,16 +67,24 @@ def resolve_provider() -> str:
 
 
 def synthesize_sfx(
-    client: httpx.Client, api_key: str, text: str, out_path: Path, duration_s: float
+    client: httpx.Client,
+    api_key: str,
+    text: str,
+    out_path: Path,
+    duration_s: float,
+    idempotency_key: str | None = None,
 ) -> None:
     body = {"text": text, "duration_seconds": duration_s, "prompt_influence": 0.6}
+    headers = {
+        "xi-api-key": api_key,
+        "Content-Type": "application/json",
+        "Accept": "audio/mpeg",
+    }
+    if idempotency_key:
+        headers["Idempotency-Key"] = idempotency_key
     resp = client.post(
         "https://api.elevenlabs.io/v1/sound-generation",
-        headers={
-            "xi-api-key": api_key,
-            "Content-Type": "application/json",
-            "Accept": "audio/mpeg",
-        },
+        headers=headers,
         json=body,
     )
     if resp.status_code != 200:
@@ -165,18 +173,27 @@ def main() -> None:
             out_path = project_root / "public" / cue["path_rel"]
             print(f"  → {cue['id']}: {cue['prompt']}")
             try:
-                retry_call(lambda: synthesize_sfx(client, api_key, cue["prompt"], out_path, cue["duration_s"]), attempts=3, base_delay=1.0)
+                id_key = make_idempotency_key(composition_id, cue["id"], cue["prompt"][:200])
+                retry_call(
+                    lambda: synthesize_sfx(
+                        client, api_key, cue["prompt"], out_path, cue["duration_s"], idempotency_key=id_key
+                    ),
+                    attempts=3,
+                    base_delay=1.0,
+                )
             except Exception as e:
                 sys.exit(f"FATAL: SFX generation failed after retries: {e}")
-            actual = float(MP3(out_path).info.length)
+            info = probe_audio(out_path)
             results.append(
                 {
                     **cue,
-                    "duration_s": round(actual, 4),
-                    "duration_frames": round(actual * fps),
+                    "duration_s": round(float(info.get("duration") or 0.0), 4),
+                    "duration_frames": round((info.get("duration") or 0.0) * fps),
+                    "sample_rate": info.get("sample_rate"),
+                    "channels": info.get("channels"),
                 }
             )
-            print(f"    wrote {out_path.name} — {actual:.2f}s")
+            print(f"    wrote {out_path.name} — {info.get('duration'):.2f}s")
 
     manifest = {
         "provider": "elevenlabs",

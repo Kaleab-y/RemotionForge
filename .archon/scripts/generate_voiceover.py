@@ -51,7 +51,7 @@ for _stream in (sys.stdout, sys.stderr):
         _stream.reconfigure(encoding="utf-8")
 
 sys.path.insert(0, str(Path(__file__).parent))
-from _audio_common import load_project_env, retry_call  # noqa: E402
+from _audio_common import load_project_env, retry_call, make_idempotency_key, probe_audio  # noqa: E402
 
 
 # Defaults — override via env vars documented in the module docstring.
@@ -85,7 +85,7 @@ def resolve_provider() -> str:
     return "none"
 
 
-def synthesize_cartesia(text: str, out_path: Path) -> None:
+def synthesize_cartesia(text: str, out_path: Path, idempotency_key: str | None = None) -> None:
     api_key = os.environ["CARTESIA_API_KEY"]
     voice_id = os.environ.get("CARTESIA_VOICE_ID", DEFAULT_CARTESIA_VOICE)
     model_id = os.environ.get("CARTESIA_MODEL", DEFAULT_CARTESIA_MODEL)
@@ -102,14 +102,18 @@ def synthesize_cartesia(text: str, out_path: Path) -> None:
         },
     }
 
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Cartesia-Version": version,
+        "Content-Type": "application/json",
+    }
+    if idempotency_key:
+        headers["Idempotency-Key"] = idempotency_key
+
     with httpx.Client(timeout=120.0) as client:
         resp = client.post(
             "https://api.cartesia.ai/tts/bytes",
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Cartesia-Version": version,
-                "Content-Type": "application/json",
-            },
+            headers=headers,
             json=body,
         )
     if resp.status_code != 200:
@@ -119,7 +123,7 @@ def synthesize_cartesia(text: str, out_path: Path) -> None:
     out_path.write_bytes(resp.content)
 
 
-def synthesize_elevenlabs(text: str, out_path: Path) -> None:
+def synthesize_elevenlabs(text: str, out_path: Path, idempotency_key: str | None = None) -> None:
     api_key = os.environ["ELEVENLABS_API_KEY"]
     voice_id = os.environ.get("ELEVENLABS_VOICE_ID", DEFAULT_ELEVENLABS_VOICE)
     model_id = os.environ.get("ELEVENLABS_MODEL", DEFAULT_ELEVENLABS_MODEL)
@@ -135,14 +139,18 @@ def synthesize_elevenlabs(text: str, out_path: Path) -> None:
         },
     }
 
+    headers = {
+        "xi-api-key": api_key,
+        "Content-Type": "application/json",
+        "Accept": "audio/mpeg",
+    }
+    if idempotency_key:
+        headers["Idempotency-Key"] = idempotency_key
+
     with httpx.Client(timeout=120.0) as client:
         resp = client.post(
             f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}",
-            headers={
-                "xi-api-key": api_key,
-                "Content-Type": "application/json",
-                "Accept": "audio/mpeg",
-            },
+            headers=headers,
             json=body,
         )
     if resp.status_code != 200:
@@ -209,14 +217,16 @@ def main() -> None:
 
         try:
             # Retry the TTS call with exponential backoff on transient failures.
+            id_key = make_idempotency_key(provider, composition_id, scene_id, text[:400])
             if provider == "cartesia":
-                retry_call(lambda: synthesize_cartesia(text, out_path), attempts=3, base_delay=1.0)
+                retry_call(lambda: synthesize_cartesia(text, out_path, idempotency_key=id_key), attempts=3, base_delay=1.0)
             else:
-                retry_call(lambda: synthesize_elevenlabs(text, out_path), attempts=3, base_delay=1.0)
+                retry_call(lambda: synthesize_elevenlabs(text, out_path, idempotency_key=id_key), attempts=3, base_delay=1.0)
         except Exception as e:
             sys.exit(f"FATAL: TTS failed after retries: {e}")
 
-        duration_s = measure_duration_seconds(out_path)
+        info = probe_audio(out_path)
+        duration_s = float(info.get("duration") or 0.0)
         duration_frames = round(duration_s * fps)
         total_seconds += duration_s
 
@@ -228,9 +238,11 @@ def main() -> None:
                 "path": rel_path,
                 "duration_s": round(duration_s, 4),
                 "duration_frames": duration_frames,
+                "sample_rate": info.get("sample_rate"),
+                "channels": info.get("channels"),
             }
         )
-        print(f"    wrote {out_path.name} — {duration_s:.2f}s ({duration_frames}f)")
+        print(f"    wrote {out_path.name} — {duration_s:.2f}s ({duration_frames}f) — sr={info.get('sample_rate')} ch={info.get('channels')}")
 
     manifest = {
         "provider": provider,
