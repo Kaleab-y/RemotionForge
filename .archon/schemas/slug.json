@@ -1,0 +1,13 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Slug artifact",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["composition_id", "fs_slug", "date", "archive_dirname"],
+  "properties": {
+    "composition_id": { "type": "string" },
+    "fs_slug": { "type": "string" },
+    "date": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+    "archive_dirname": { "type": "string" }
+  }
+}

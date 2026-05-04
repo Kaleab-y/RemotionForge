@@ -273,9 +273,17 @@ nodes:
         # non-empty target. We then copy contents into cwd — but STRIP the
         # scaffold's own .git/ and .gitignore/ first, because cp -R would
         # otherwise clobber the host repo's version of each.
+        SCAFFOLD_DRY_RUN=${SCAFFOLD_DRY_RUN:-}
+
         TMP=$(mktemp -d)
         trap 'rm -rf "$TMP"' EXIT
         npx --yes create-video@latest --yes --blank --no-tailwind "$TMP/_project"
+
+        if [ "$SCAFFOLD_DRY_RUN" = "true" ] || [ "$SCAFFOLD_DRY_RUN" = "1" ]; then
+          echo "SCAFFOLD_DRY_RUN set — dry-run mode. Scaffolded files are at: $TMP/_project"
+          (cd "$TMP/_project" && find . -maxdepth 2 -type f -print) || true
+          exit 0
+        fi
 
         # Protect the host repo's curated files.
         rm -rf "$TMP/_project/.git"
@@ -591,6 +599,15 @@ nodes:
       # Basic JSON shape checks using jq (title, mode, url, source_type)
       jq -e '.title and .mode and (.url != null) and .source_type' "$ARTIFACTS_DIR/article.json" >/dev/null || { echo "INVALID: article.json missing required fields" >&2; jq '.' "$ARTIFACTS_DIR/article.json" >&2 || true; exit 2; }
 
+      # If Node/npx is available, run AJV JSON Schema validation for stricter checks.
+      if command -v npx >/dev/null 2>&1; then
+        echo "Running schema validation (ajv-cli)..."
+        npx --yes ajv-cli validate -s .archon/schemas/article.json -d "$ARTIFACTS_DIR/article.json" || { echo "SCHEMA INVALID: $ARTIFACTS_DIR/article.json" >&2; jq '.' "$ARTIFACTS_DIR/article.json" >&2 || true; exit 11; }
+        npx --yes ajv-cli validate -s .archon/schemas/slug.json -d "$ARTIFACTS_DIR/slug.json" || { echo "SCHEMA INVALID: $ARTIFACTS_DIR/slug.json" >&2; jq '.' "$ARTIFACTS_DIR/slug.json" >&2 || true; exit 12; }
+      else
+        echo "npx not found — skipping JSON Schema validation (install Node/npx to enable)."
+      fi
+
       # Optionally force regeneration of audio artifacts when prior-success cache
       # has caused earlier audio nodes to be skipped. Set FORCE_FRESH_RUN=true
       # to attempt regeneration here.
@@ -615,6 +632,18 @@ nodes:
         fi
 
         PATHVAL=$(jq -r '.path // empty' "$MANIF")
+        # If ajv-cli is available, validate the manifest JSON against its schema.
+        if command -v npx >/dev/null 2>&1; then
+          case "$MANIF" in
+            *voice-manifest.json) SCHEMA=".archon/schemas/audio/voice-manifest.json" ;;
+            *music-manifest.json) SCHEMA=".archon/schemas/audio/music-manifest.json" ;;
+            *sfx-manifest.json)   SCHEMA=".archon/schemas/audio/sfx-manifest.json" ;;
+            *) SCHEMA="" ;;
+          esac
+          if [ -n "$SCHEMA" ]; then
+            npx --yes ajv-cli validate -s "$SCHEMA" -d "$MANIF" || { echo "SCHEMA INVALID: $MANIF" >&2; jq '.' "$MANIF" >&2 || true; exit 13; }
+          fi
+        fi
         if [ -z "$PATHVAL" ]; then
           echo "INVALID: $MANIF missing 'path' field" >&2
           exit 3
@@ -953,6 +982,28 @@ nodes:
     trigger_rule: none_failed_min_one_success
     timeout: 180000
 
+  # ── Layer 7.1: Per-run staging ────────────────────────────────────
+  - id: stage-run
+    bash: |
+      set -euo pipefail
+
+      ARCHIVE_DIRNAME=$(jq -r '.archive_dirname' "$ARTIFACTS_DIR/slug.json")
+      RUN_DIR="runs/$ARCHIVE_DIRNAME"
+      mkdir -p "$RUN_DIR/artifacts"
+
+      # Copy artifacts (safe-guard: ignore missing)
+      cp -R "$ARTIFACTS_DIR/." "$RUN_DIR/artifacts/" 2>/dev/null || true
+
+      # Copy public/ tree if present
+      if [ -d "public" ]; then
+        mkdir -p "$RUN_DIR/public"
+        cp -R public/* "$RUN_DIR/public/" 2>/dev/null || true
+      fi
+
+      echo "Staged run artifacts to $RUN_DIR"
+    depends_on: [verify]
+    timeout: 60000
+
   # ── Layer 8: Render + archive (opt-out) ────────────────────────────
 
   - id: archive-render
@@ -1012,7 +1063,7 @@ nodes:
         "$ARCHIVE_DIRNAME" "$ARCHIVE_DIRNAME" >> "$INDEX"
 
       echo "Archived: $DEST"
-    depends_on: [verify]
+    depends_on: [stage-run]
     timeout: 600000
 
   # ── Layer 9: Receipt ───────────────────────────────────────────────

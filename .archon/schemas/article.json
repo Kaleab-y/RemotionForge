@@ -1,0 +1,13 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Article artifact",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["mode", "title", "url", "source_type"],
+  "properties": {
+    "mode": { "type": "string", "enum": ["hn", "article", "marketing", "idea"] },
+    "title": { "type": "string" },
+    "url": { "type": "string" },
+    "source_type": { "type": "string", "enum": ["hn_algolia", "article_url", "marketing_site", "user_idea"] }
+  }
+}

@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg jq
+
+      - name: Install archon
+        run: curl -fsSL https://archon.diy/install | bash
+
+      - name: Install pnpm
+        run: npm install -g pnpm || true
+
+      - name: Install Python dev deps
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
+
+      - name: Validate workflows
+        run: archon validate workflows
+
+      - name: Python: compile scripts
+        run: python -m py_compile .archon/scripts/*.py
+
+      - name: Schema validation (ajv)
+        run: |
+          mkdir -p artifacts
+          cat > artifacts/article.json <<'JSON'
+          { "mode":"idea","title":"Test","url":"","source_type":"user_idea" }
+          JSON
+          cat > artifacts/slug.json <<'JSON'
+          { "composition_id":"Test","fs_slug":"test","date":"2026-05-05","archive_dirname":"2026-05-05-test" }
+          JSON
+          npx --yes ajv-cli validate -s .archon/schemas/article.json -d artifacts/article.json
+          npx --yes ajv-cli validate -s .archon/schemas/slug.json -d artifacts/slug.json
+
+      - name: Run unit tests
+        run: pytest -q
+
+      - name: Workflow dry-run
+        run: archon workflow run remotion-idea-to-video --no-worktree --dry-run ""
+        continue-on-error: true

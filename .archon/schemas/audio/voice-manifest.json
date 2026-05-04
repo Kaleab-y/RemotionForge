@@ -1,0 +1,32 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Voice manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["provider", "composition_id", "fps", "scenes", "total_duration_s", "total_duration_frames"],
+  "properties": {
+    "provider": { "type": "string" },
+    "model_id": { "type": "string" },
+    "voice_id": { "type": "string" },
+    "composition_id": { "type": "string" },
+    "fps": { "type": "integer" },
+    "scenes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "path", "duration_s", "duration_frames"],
+        "properties": {
+          "id": { "type": "string" },
+          "path": { "type": "string" },
+          "duration_s": { "type": "number" },
+          "duration_frames": { "type": "integer" },
+          "sample_rate": { "type": ["integer", "null"] },
+          "channels": { "type": ["integer", "null"] }
+        }
+      }
+    },
+    "total_duration_s": { "type": "number" },
+    "total_duration_frames": { "type": "integer" }
+  }
+}
